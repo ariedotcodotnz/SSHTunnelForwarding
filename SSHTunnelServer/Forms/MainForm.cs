@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Data.SqlClient;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -224,6 +225,76 @@ namespace SSHTunnelServer
                 string sshdConfigPath = CreateSshdConfig(config);
 
                 // Start the SSH server process
+                Process sshProcess; // Just declare it
+                sshProcess = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "cmd.exe",
+                        Arguments = $"/c {sshCommand}",
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardInput = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    }
+                };
+
+                sshProcess.OutputDataReceived += (s, e) =>
+                {
+                    if (!string.IsNullOrEmpty(e.Data))
+                    {
+                        LogMessage(e.Data);
+                    }
+                };
+
+                sshProcess.ErrorDataReceived += (s, e) =>
+                {
+                    if (!string.IsNullOrEmpty(e.Data))
+                    {
+                        LogMessage($"ERROR: {e.Data}");
+                    }
+                };
+
+                sshProcess.Start();
+                sshProcess.BeginOutputReadLine();
+                sshProcess.BeginErrorReadLine();
+
+                // Store the process and update the configuration
+                _activeListeners[config.ListenPort] = sshProcess;
+                config.IsActive = true;
+
+                // Refresh the UI
+                dataGridConfigurations.Refresh();
+
+                LogMessage($"Started listener: {config.Name} on port {config.ListenPort}");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error starting listener: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                LogMessage($"Error starting listener: {ex.Message}");
+            }
+        }
+
+        private void StartListener(ServerConfig config)
+        {
+            try
+            {
+                // Check if port is already in use
+                if (IsPortInUse(config.ListenPort))
+                {
+                    MessageBox.Show($"Port {config.ListenPort} is already in use.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
+                // Create instance of ServerSecurityManager
+                ServerSecurityManager securityManager = new ServerSecurityManager();
+
+                // Generate SSH server configuration
+                string sshdConfig = securityManager.GenerateSSHConfig(config);
+                string sshdConfigPath = SaveSSHDConfig(config.Name, config.ListenPort, sshdConfig);
+
+                // Start the SSH server process
                 Process sshProcess = new Process
                 {
                     StartInfo = new ProcessStartInfo
@@ -264,13 +335,54 @@ namespace SSHTunnelServer
                 // Refresh the UI
                 dataGridConfigurations.Refresh();
 
-                LogMessage($"Started listener: {config.Name} on port {config.ListenPort}");
+                LogMessage($"Started listener: {config.Name} on port {config.ListenPort} with security level {config.SecurityLevel}");
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Error starting listener: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 LogMessage($"Error starting listener: {ex.Message}");
             }
+        }
+
+        private string SaveSSHDConfig(string configName, int port, string configContent)
+        {
+            // Save the generated sshd_config to a file
+            string appDataPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "SSHTunnelServer");
+
+            string configDir = Path.Combine(appDataPath, "configs");
+
+            if (!Directory.Exists(configDir))
+            {
+                Directory.CreateDirectory(configDir);
+            }
+
+            string sanitizedName = configName.Replace(" ", "_").Replace(".", "_");
+            string configPath = Path.Combine(configDir, $"sshd_config_{sanitizedName}_{port}");
+
+            File.WriteAllText(configPath, configContent);
+
+            return configPath;
+        }
+
+        private bool IsPortInUse(int port)
+        {
+            bool inUse = false;
+
+            try
+            {
+                // In .NET Framework, we need to use TcpListener directly without using statements
+                TcpListener tcpListener = new TcpListener(IPAddress.Any, port);
+                tcpListener.Start();
+                tcpListener.Stop();
+            }
+            catch
+            {
+                inUse = true;
+            }
+
+            return inUse;
         }
 
         private bool IsPortInUse(int port)
