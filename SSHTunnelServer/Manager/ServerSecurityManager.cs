@@ -136,6 +136,8 @@ namespace SSHTunnelServer
             return sb.ToString();
         }
 
+        public bool ChallengeResponseAuth { get; set; } = false;
+
         // Import an existing certificate
         public bool ImportCertificate(string certificatePath, string password = null)
         {
@@ -234,7 +236,8 @@ namespace SSHTunnelServer
             sb.AppendLine($"PubkeyAuthentication {(config.PubkeyAuthentication ? "yes" : "no")}");
             sb.AppendLine($"PasswordAuthentication {(config.PasswordAuthentication ? "yes" : "no")}");
             sb.AppendLine("PermitEmptyPasswords no");
-            sb.AppendLine($"ChallengeResponseAuthentication {(config.ChallengeResponseAuth ? "yes" : "no")}");
+            sb.AppendLine($"ChallengeResponseAuthenication {(config.ChallengeResponseAuth ? "yes" : "no")}");
+
 
             // Add allowed clients configuration
             if (config.AllowedClients != "*")

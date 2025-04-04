@@ -18,6 +18,7 @@ namespace SSHTunnelServer
         private StartupManager _startupManager;
         private Dictionary<int, Process> _activeListeners;
         private EncryptionManager _encryptionManager;
+        private string sshCommand;
 
         public MainForm()
         {
@@ -221,72 +222,6 @@ namespace SSHTunnelServer
                     return;
                 }
 
-                // For Windows, we'll use sshd_config to set up the SSH server
-                string sshdConfigPath = CreateSshdConfig(config);
-
-                // Start the SSH server process
-                Process sshProcess; // Just declare it
-                sshProcess = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = "cmd.exe",
-                        Arguments = $"/c {sshCommand}",
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardInput = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    }
-                };
-
-                sshProcess.OutputDataReceived += (s, e) =>
-                {
-                    if (!string.IsNullOrEmpty(e.Data))
-                    {
-                        LogMessage(e.Data);
-                    }
-                };
-
-                sshProcess.ErrorDataReceived += (s, e) =>
-                {
-                    if (!string.IsNullOrEmpty(e.Data))
-                    {
-                        LogMessage($"ERROR: {e.Data}");
-                    }
-                };
-
-                sshProcess.Start();
-                sshProcess.BeginOutputReadLine();
-                sshProcess.BeginErrorReadLine();
-
-                // Store the process and update the configuration
-                _activeListeners[config.ListenPort] = sshProcess;
-                config.IsActive = true;
-
-                // Refresh the UI
-                dataGridConfigurations.Refresh();
-
-                LogMessage($"Started listener: {config.Name} on port {config.ListenPort}");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error starting listener: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                LogMessage($"Error starting listener: {ex.Message}");
-            }
-        }
-
-        private void StartListener(ServerConfig config)
-        {
-            try
-            {
-                // Check if port is already in use
-                if (IsPortInUse(config.ListenPort))
-                {
-                    MessageBox.Show($"Port {config.ListenPort} is already in use.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-
                 // Create instance of ServerSecurityManager
                 ServerSecurityManager securityManager = new ServerSecurityManager();
 
@@ -373,24 +308,6 @@ namespace SSHTunnelServer
             try
             {
                 // In .NET Framework, we need to use TcpListener directly without using statements
-                TcpListener tcpListener = new TcpListener(IPAddress.Any, port);
-                tcpListener.Start();
-                tcpListener.Stop();
-            }
-            catch
-            {
-                inUse = true;
-            }
-
-            return inUse;
-        }
-
-        private bool IsPortInUse(int port)
-        {
-            bool inUse = false;
-
-            try
-            {
                 TcpListener tcpListener = new TcpListener(IPAddress.Any, port);
                 tcpListener.Start();
                 tcpListener.Stop();

@@ -1,8 +1,6 @@
 ﻿using System;
-using System.Windows.Forms;
-using System.IO;
 using System.Collections.Generic;
-using System.Xml.Linq;
+using System.Windows.Forms;
 
 namespace SSHTunnelServer
 {
@@ -16,6 +14,20 @@ namespace SSHTunnelServer
             InitializeComponent();
             _securityManager = new ServerSecurityManager();
 
+            // Populate security level dropdown
+            cmbSecurityLevel.Items.Add("Basic");
+            cmbSecurityLevel.Items.Add("Standard");
+            cmbSecurityLevel.Items.Add("High");
+
+            // Populate log level dropdown
+            cmbLogLevel.Items.Add("Error");
+            cmbLogLevel.Items.Add("Info");
+            cmbLogLevel.Items.Add("Verbose");
+            cmbLogLevel.Items.Add("Debug");
+
+            // Populate server key and certificate dropdowns
+            PopulateKeyAndCertificateDropdowns();
+
             if (existingConfig != null)
             {
                 // Edit existing configuration
@@ -26,19 +38,21 @@ namespace SSHTunnelServer
                     AllowedClients = existingConfig.AllowedClients,
                     UseEncryption = existingConfig.UseEncryption,
                     SecurityLevel = existingConfig.SecurityLevel,
-                    AllowedAuthMethods = new List<AuthMethod>(existingConfig.AllowedAuthMethods),
+                    PasswordAuthentication = existingConfig.PasswordAuthentication,
+                    PubkeyAuthentication = existingConfig.PubkeyAuthentication,
+                    CertificateAuthentication = existingConfig.CertificateAuthentication,
+                    KeyboardInteractiveAuth = existingConfig.KeyboardInteractiveAuth,
+                    YubikeyAuthentication = existingConfig.YubikeyAuthentication,
+                    TwoFactorAuthentication = existingConfig.TwoFactorAuthentication,
                     MaxAuthTries = existingConfig.MaxAuthTries,
                     LoginGraceTime = existingConfig.LoginGraceTime,
                     PermitRootLogin = existingConfig.PermitRootLogin,
-                    PasswordAuthentication = existingConfig.PasswordAuthentication,
-                    PubkeyAuthentication = existingConfig.PubkeyAuthentication,
-                    ChallengeResponseAuth = existingConfig.ChallengeResponseAuth,
                     EnableYubiKey = existingConfig.EnableYubiKey,
                     YubiKeyAuthServer = existingConfig.YubiKeyAuthServer,
                     YubiKeyAPIKey = existingConfig.YubiKeyAPIKey,
                     YubiKeyClientID = existingConfig.YubiKeyClientID,
-                    ServerKeyPath = existingConfig.ServerKeyPath,
-                    ServerCertPath = existingConfig.ServerCertPath,
+                    ServerKeyName = existingConfig.ServerKeyName,
+                    ServerCertName = existingConfig.ServerCertName,
                     LogLevel = existingConfig.LogLevel,
                     EnableAuditLogging = existingConfig.EnableAuditLogging,
                     LogFilePath = existingConfig.LogFilePath,
@@ -47,7 +61,7 @@ namespace SSHTunnelServer
             }
             else
             {
-                // Create new configuration with defaults
+                // Create new configuration
                 Configuration = new ServerConfig
                 {
                     Name = "New Configuration",
@@ -55,11 +69,24 @@ namespace SSHTunnelServer
                     AllowedClients = "*",
                     UseEncryption = false,
                     SecurityLevel = SecurityLevel.Standard,
-                    AllowedAuthMethods = new List<AuthMethod>
-                    {
-                        AuthMethod.Password,
-                        AuthMethod.PublicKey
-                    },
+                    PasswordAuthentication = true,
+                    PubkeyAuthentication = true,
+                    CertificateAuthentication = false,
+                    KeyboardInteractiveAuth = false,
+                    YubikeyAuthentication = false,
+                    TwoFactorAuthentication = false,
+                    MaxAuthTries = 6,
+                    LoginGraceTime = 120,
+                    PermitRootLogin = false,
+                    EnableYubiKey = false,
+                    YubiKeyAuthServer = "api.yubico.com",
+                    YubiKeyAPIKey = "",
+                    YubiKeyClientID = "",
+                    ServerKeyName = "",
+                    ServerCertName = "",
+                    LogLevel = LogLevel.Info,
+                    EnableAuditLogging = false,
+                    LogFilePath = "",
                     IsActive = false
                 };
             }
@@ -70,21 +97,16 @@ namespace SSHTunnelServer
             txtAllowedClients.Text = Configuration.AllowedClients;
             chkUseEncryption.Checked = Configuration.UseEncryption;
 
-            // Set security level
-            cmbSecurityLevel.Items.Clear();
-            foreach (SecurityLevel level in Enum.GetValues(typeof(SecurityLevel)))
-            {
-                cmbSecurityLevel.Items.Add(level.ToString());
-            }
+            // Security level
             cmbSecurityLevel.SelectedIndex = (int)Configuration.SecurityLevel;
 
-            // Authentication methods
-            chkPasswordAuth.Checked = Configuration.AllowedAuthMethods.Contains(AuthMethod.Password);
-            chkPublicKeyAuth.Checked = Configuration.AllowedAuthMethods.Contains(AuthMethod.PublicKey);
-            chkCertificateAuth.Checked = Configuration.AllowedAuthMethods.Contains(AuthMethod.Certificate);
-            chkKeyboardInteractiveAuth.Checked = Configuration.AllowedAuthMethods.Contains(AuthMethod.KeyboardInteractive);
-            chkYubikeyAuth.Checked = Configuration.AllowedAuthMethods.Contains(AuthMethod.YubiKey);
-            chkTwoFactorAuth.Checked = Configuration.AllowedAuthMethods.Contains(AuthMethod.TwoFactor);
+            // Authentication settings
+            chkPasswordAuth.Checked = Configuration.PasswordAuthentication;
+            chkPublicKeyAuth.Checked = Configuration.PubkeyAuthentication;
+            chkCertificateAuth.Checked = Configuration.CertificateAuthentication;
+            chkKeyboardInteractiveAuth.Checked = Configuration.KeyboardInteractiveAuth;
+            chkYubikeyAuth.Checked = Configuration.YubikeyAuthentication;
+            chkTwoFactorAuth.Checked = Configuration.TwoFactorAuthentication;
 
             // Advanced settings
             numMaxAuthTries.Value = Configuration.MaxAuthTries;
@@ -97,119 +119,91 @@ namespace SSHTunnelServer
             txtYubiKeyAPIKey.Text = Configuration.YubiKeyAPIKey;
             txtYubiKeyClientID.Text = Configuration.YubiKeyClientID;
 
-            // Server keys and certificates
-            PopulateServerKeysDropdown();
-            PopulateServerCertificatesDropdown();
-
-            if (!string.IsNullOrEmpty(Configuration.ServerKeyPath))
+            // Server key and certificate
+            if (!string.IsNullOrEmpty(Configuration.ServerKeyName))
             {
-                string keyName = Path.GetFileNameWithoutExtension(Configuration.ServerKeyPath);
-                int index = cmbServerKey.FindStringExact(keyName);
-                if (index >= 0)
-                    cmbServerKey.SelectedIndex = index;
+                int keyIndex = cmbServerKey.FindStringExact(Configuration.ServerKeyName);
+                if (keyIndex >= 0)
+                    cmbServerKey.SelectedIndex = keyIndex;
             }
 
-            if (!string.IsNullOrEmpty(Configuration.ServerCertPath))
+            if (!string.IsNullOrEmpty(Configuration.ServerCertName))
             {
-                string certName = Path.GetFileNameWithoutExtension(Configuration.ServerCertPath);
-                int index = cmbServerCert.FindStringExact(certName);
-                if (index >= 0)
-                    cmbServerCert.SelectedIndex = index;
+                int certIndex = cmbServerCert.FindStringExact(Configuration.ServerCertName);
+                if (certIndex >= 0)
+                    cmbServerCert.SelectedIndex = certIndex;
             }
 
-            // Logging
-            cmbLogLevel.Items.Clear();
-            foreach (LogLevel level in Enum.GetValues(typeof(LogLevel)))
-            {
-                cmbLogLevel.Items.Add(level.ToString());
-            }
+            // Logging settings
             cmbLogLevel.SelectedIndex = (int)Configuration.LogLevel;
             chkEnableAuditLogging.Checked = Configuration.EnableAuditLogging;
             txtLogFilePath.Text = Configuration.LogFilePath;
 
-            // Update UI state
-            UpdateYubiKeyUIState();
+            // Update UI state based on current settings
+            UpdateUIState();
         }
 
-        private void PopulateServerKeysDropdown()
+        private void PopulateKeyAndCertificateDropdowns()
         {
+            // Clear existing items
             cmbServerKey.Items.Clear();
-            cmbServerKey.Items.Add("(Default)");
+            cmbServerCert.Items.Clear();
 
-            foreach (string key in _securityManager.GetAvailableServerKeys())
+            // Add empty option
+            cmbServerKey.Items.Add("(None)");
+            cmbServerCert.Items.Add("(None)");
+
+            // Get available keys and certificates
+            List<string> keys = _securityManager.GetAvailableServerKeys();
+            List<string> certs = _securityManager.GetAvailableServerCertificates();
+
+            // Add to dropdowns
+            foreach (string key in keys)
             {
                 cmbServerKey.Items.Add(key);
             }
 
-            cmbServerKey.SelectedIndex = 0;
-        }
-
-        private void PopulateServerCertificatesDropdown()
-        {
-            cmbServerCert.Items.Clear();
-            cmbServerCert.Items.Add("(Default)");
-
-            foreach (string cert in _securityManager.GetAvailableServerCertificates())
+            foreach (string cert in certs)
             {
                 cmbServerCert.Items.Add(cert);
             }
 
+            // Select first items
+            cmbServerKey.SelectedIndex = 0;
             cmbServerCert.SelectedIndex = 0;
         }
 
-        private void chkEnableYubiKey_CheckedChanged(object sender, EventArgs e)
+        private void UpdateUIState()
         {
-            UpdateYubiKeyUIState();
-        }
-
-        private void UpdateYubiKeyUIState()
-        {
+            // Enable/disable YubiKey settings based on YubiKey checkbox
             bool yubiKeyEnabled = chkEnableYubiKey.Checked;
-
             txtYubiKeyServer.Enabled = yubiKeyEnabled;
             txtYubiKeyAPIKey.Enabled = yubiKeyEnabled;
             txtYubiKeyClientID.Enabled = yubiKeyEnabled;
             btnConfigureYubiKey.Enabled = yubiKeyEnabled;
             chkYubikeyAuth.Enabled = yubiKeyEnabled;
+        }
 
-            if (yubiKeyEnabled && !chkYubikeyAuth.Checked)
+        private void cmbSecurityLevel_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            // Update security-related settings based on selected security level
+            switch (cmbSecurityLevel.SelectedIndex)
             {
-                chkYubikeyAuth.Checked = true;
+                case 0: // Basic
+                    // Less secure but more compatible settings
+                    break;
+                case 1: // Standard
+                    // Default balanced settings
+                    break;
+                case 2: // High
+                    // Most secure settings
+                    break;
             }
         }
 
-        private void btnGenerateKey_Click(object sender, EventArgs e)
+        private void chkEnableYubiKey_CheckedChanged(object sender, EventArgs e)
         {
-            using (var keyGenForm = new ServerKeyGenerationForm())
-            {
-                if (keyGenForm.ShowDialog() == DialogResult.OK)
-                {
-                    // Refresh the keys dropdown
-                    PopulateServerKeysDropdown();
-
-                    // Select the newly generated key
-                    int index = cmbServerKey.FindStringExact(keyGenForm.GeneratedKeyName);
-                    if (index >= 0)
-                        cmbServerKey.SelectedIndex = index;
-                }
-            }
-        }
-
-        private void btnGenerateCert_Click(object sender, EventArgs e)
-        {
-            using (var certGenForm = new ServerCertificateForm())
-            {
-                if (certGenForm.ShowDialog() == DialogResult.OK)
-                {
-                    // Refresh the certificates dropdown
-                    PopulateServerCertificatesDropdown();
-
-                    // Select the newly generated certificate
-                    int index = cmbServerCert.FindStringExact(certGenForm.GeneratedCertName);
-                    if (index >= 0)
-                        cmbServerCert.SelectedIndex = index;
-                }
-            }
+            UpdateUIState();
         }
 
         private void btnBrowseLogFile_Click(object sender, EventArgs e)
@@ -217,7 +211,8 @@ namespace SSHTunnelServer
             using (SaveFileDialog dialog = new SaveFileDialog())
             {
                 dialog.Filter = "Log Files|*.log|All Files|*.*";
-                dialog.Title = "Select Log File Location";
+                dialog.Title = "Select Log File";
+                dialog.FileName = "ssh_audit.log";
 
                 if (dialog.ShowDialog() == DialogResult.OK)
                 {
@@ -226,11 +221,48 @@ namespace SSHTunnelServer
             }
         }
 
+        private void btnGenerateServerKey_Click(object sender, EventArgs e)
+        {
+            string keyName = "server_key_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            if (_securityManager.GenerateServerKeyPair(keyName))
+            {
+                MessageBox.Show($"Server key pair '{keyName}' generated successfully.", "Key Generated", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                // Refresh the key dropdown
+                PopulateKeyAndCertificateDropdowns();
+
+                // Select the newly generated key
+                int index = cmbServerKey.FindStringExact(keyName);
+                if (index >= 0)
+                    cmbServerKey.SelectedIndex = index;
+            }
+        }
+
+        private void btnGenerateServerCert_Click(object sender, EventArgs e)
+        {
+            string certName = "server_cert_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string subject = "CN=SSHTunnelServer, O=YourOrganization";
+
+            if (_securityManager.GenerateServerCertificate(certName, subject))
+            {
+                MessageBox.Show($"Server certificate '{certName}' generated successfully.", "Certificate Generated", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                // Refresh the certificate dropdown
+                PopulateKeyAndCertificateDropdowns();
+
+                // Select the newly generated certificate
+                int index = cmbServerCert.FindStringExact(certName);
+                if (index >= 0)
+                    cmbServerCert.SelectedIndex = index;
+            }
+        }
+
         private void btnConfigureYubiKey_Click(object sender, EventArgs e)
         {
-            MessageBox.Show("YubiKey configuration requires the YubiKey Manager (ykman) tool to be installed on the server.\n\n" +
-                "Please make sure the YubiKey is configured with the OATH or OTP application enabled.",
-                "YubiKey Configuration", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show("YubiKey configuration will launch an external tool. Please make sure your YubiKey is connected.", "YubiKey Configuration", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+            // Here you would typically launch an external YubiKey configuration tool
+            // or show a custom YubiKey configuration dialog
         }
 
         private void btnOK_Click(object sender, EventArgs e)
@@ -242,31 +274,6 @@ namespace SSHTunnelServer
                 return;
             }
 
-            // Collect authentication methods
-            List<AuthMethod> allowedAuthMethods = new List<AuthMethod>();
-            if (chkPasswordAuth.Checked) allowedAuthMethods.Add(AuthMethod.Password);
-            if (chkPublicKeyAuth.Checked) allowedAuthMethods.Add(AuthMethod.PublicKey);
-            if (chkCertificateAuth.Checked) allowedAuthMethods.Add(AuthMethod.Certificate);
-            if (chkKeyboardInteractiveAuth.Checked) allowedAuthMethods.Add(AuthMethod.KeyboardInteractive);
-            if (chkYubikeyAuth.Checked) allowedAuthMethods.Add(AuthMethod.YubiKey);
-            if (chkTwoFactorAuth.Checked) allowedAuthMethods.Add(AuthMethod.TwoFactor);
-
-            if (allowedAuthMethods.Count == 0)
-            {
-                MessageBox.Show("Please select at least one authentication method.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            // YubiKey validation
-            if (chkEnableYubiKey.Checked && chkYubikeyAuth.Checked)
-            {
-                if (string.IsNullOrEmpty(txtYubiKeyServer.Text))
-                {
-                    MessageBox.Show("Please enter a YubiKey authentication server.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-            }
-
             // Update configuration
             Configuration.Name = txtName.Text;
             Configuration.ListenPort = (int)numListenPort.Value;
@@ -274,58 +281,43 @@ namespace SSHTunnelServer
             Configuration.UseEncryption = chkUseEncryption.Checked;
 
             // Security level
-            if (cmbSecurityLevel.SelectedIndex >= 0)
-            {
-                Configuration.SecurityLevel = (SecurityLevel)cmbSecurityLevel.SelectedIndex;
-            }
+            Configuration.SecurityLevel = (SecurityLevel)cmbSecurityLevel.SelectedIndex;
 
-            // Authentication methods
-            Configuration.AllowedAuthMethods = allowedAuthMethods;
+            // Authentication settings
+            Configuration.PasswordAuthentication = chkPasswordAuth.Checked;
+            Configuration.PubkeyAuthentication = chkPublicKeyAuth.Checked;
+            Configuration.CertificateAuthentication = chkCertificateAuth.Checked;
+            Configuration.KeyboardInteractiveAuth = chkKeyboardInteractiveAuth.Checked;
+            Configuration.YubikeyAuthentication = chkYubikeyAuth.Checked;
+            Configuration.TwoFactorAuthentication = chkTwoFactorAuth.Checked;
 
             // Advanced settings
             Configuration.MaxAuthTries = (int)numMaxAuthTries.Value;
             Configuration.LoginGraceTime = (int)numLoginGraceTime.Value;
             Configuration.PermitRootLogin = chkPermitRootLogin.Checked;
-            Configuration.PasswordAuthentication = chkPasswordAuth.Checked;
-            Configuration.PubkeyAuthentication = chkPublicKeyAuth.Checked;
-            Configuration.ChallengeResponseAuth = chkKeyboardInteractiveAuth.Checked;
 
             // YubiKey settings
             Configuration.EnableYubiKey = chkEnableYubiKey.Checked;
-            Configuration.YubiKeyAuthServer = txtYubiKeyServer.Text;
-            Configuration.YubiKeyAPIKey = txtYubiKeyAPIKey.Text;
-            Configuration.YubiKeyClientID = txtYubiKeyClientID.Text;
-
-            // Server keys and certificates
-            if (cmbServerKey.SelectedIndex > 0)
+            if (Configuration.EnableYubiKey)
             {
-                string appDataPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "SSHTunnelServer", "server_keys");
-                Configuration.ServerKeyPath = Path.Combine(appDataPath, $"{cmbServerKey.SelectedItem}.key");
+                Configuration.YubiKeyAuthServer = txtYubiKeyServer.Text;
+                Configuration.YubiKeyAPIKey = txtYubiKeyAPIKey.Text;
+                Configuration.YubiKeyClientID = txtYubiKeyClientID.Text;
             }
+
+            // Server key and certificate
+            if (cmbServerKey.SelectedIndex > 0) // Skip "(None)" option
+                Configuration.ServerKeyName = cmbServerKey.SelectedItem.ToString();
             else
-            {
-                Configuration.ServerKeyPath = "";
-            }
+                Configuration.ServerKeyName = "";
 
-            if (cmbServerCert.SelectedIndex > 0)
-            {
-                string appDataPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "SSHTunnelServer", "server_certs");
-                Configuration.ServerCertPath = Path.Combine(appDataPath, $"{cmbServerCert.SelectedItem}.pfx");
-            }
+            if (cmbServerCert.SelectedIndex > 0) // Skip "(None)" option
+                Configuration.ServerCertName = cmbServerCert.SelectedItem.ToString();
             else
-            {
-                Configuration.ServerCertPath = "";
-            }
+                Configuration.ServerCertName = "";
 
-            // Logging
-            if (cmbLogLevel.SelectedIndex >= 0)
-            {
-                Configuration.LogLevel = (LogLevel)cmbLogLevel.SelectedIndex;
-            }
+            // Logging settings
+            Configuration.LogLevel = (LogLevel)cmbLogLevel.SelectedIndex;
             Configuration.EnableAuditLogging = chkEnableAuditLogging.Checked;
             Configuration.LogFilePath = txtLogFilePath.Text;
 
@@ -339,399 +331,595 @@ namespace SSHTunnelServer
             Close();
         }
 
-        private void btnViewConfig_Click(object sender, EventArgs e)
-        {
-            // Generate config preview and show in a dialog
-            string configPreview = _securityManager.GenerateSSHConfig(Configuration);
-
-            using (var previewForm = new ConfigPreviewForm(configPreview))
-            {
-                previewForm.ShowDialog();
-            }
-        }
-
-        // The InitializeComponent method would be here with the designer code
         private void InitializeComponent()
         {
-            // Components would be initialized here
-            // We're not showing the complete UI initialization code for brevity
-            // In a real implementation, you would have all the control declarations and UI layout here
-        }
-    }
+            this.lblName = new System.Windows.Forms.Label();
+            this.txtName = new System.Windows.Forms.TextBox();
+            this.lblListenPort = new System.Windows.Forms.Label();
+            this.numListenPort = new System.Windows.Forms.NumericUpDown();
+            this.lblAllowedClients = new System.Windows.Forms.Label();
+            this.txtAllowedClients = new System.Windows.Forms.TextBox();
+            this.lblAllowedClientsHelp = new System.Windows.Forms.Label();
+            this.chkUseEncryption = new System.Windows.Forms.CheckBox();
 
-    // Preview form for SSH config
-    public class ConfigPreviewForm : Form
-    {
-        private TextBox txtConfigPreview;
-        private Button btnClose;
+            // Security Level controls
+            this.lblSecurityLevel = new System.Windows.Forms.Label();
+            this.cmbSecurityLevel = new System.Windows.Forms.ComboBox();
 
-        public ConfigPreviewForm(string configText)
-        {
-            InitializeComponent();
-            txtConfigPreview.Text = configText;
-        }
+            // Authentication controls
+            this.grpAuthentication = new System.Windows.Forms.GroupBox();
+            this.chkPasswordAuth = new System.Windows.Forms.CheckBox();
+            this.chkPublicKeyAuth = new System.Windows.Forms.CheckBox();
+            this.chkCertificateAuth = new System.Windows.Forms.CheckBox();
+            this.chkKeyboardInteractiveAuth = new System.Windows.Forms.CheckBox();
+            this.chkYubikeyAuth = new System.Windows.Forms.CheckBox();
+            this.chkTwoFactorAuth = new System.Windows.Forms.CheckBox();
 
-        private void InitializeComponent()
-        {
-            this.txtConfigPreview = new System.Windows.Forms.TextBox();
-            this.btnClose = new System.Windows.Forms.Button();
-            this.SuspendLayout();
+            // Advanced auth settings
+            this.lblMaxAuthTries = new System.Windows.Forms.Label();
+            this.numMaxAuthTries = new System.Windows.Forms.NumericUpDown();
+            this.lblLoginGraceTime = new System.Windows.Forms.Label();
+            this.numLoginGraceTime = new System.Windows.Forms.NumericUpDown();
+            this.chkPermitRootLogin = new System.Windows.Forms.CheckBox();
 
-            // txtConfigPreview
-            this.txtConfigPreview.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom)
-            | System.Windows.Forms.AnchorStyles.Left)
-            | System.Windows.Forms.AnchorStyles.Right)));
-            this.txtConfigPreview.Font = new System.Drawing.Font("Consolas", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.txtConfigPreview.Location = new System.Drawing.Point(12, 12);
-            this.txtConfigPreview.Multiline = true;
-            this.txtConfigPreview.Name = "txtConfigPreview";
-            this.txtConfigPreview.ReadOnly = true;
-            this.txtConfigPreview.ScrollBars = System.Windows.Forms.ScrollBars.Both;
-            this.txtConfigPreview.Size = new System.Drawing.Size(560, 398);
-            this.txtConfigPreview.TabIndex = 0;
+            // YubiKey settings
+            this.grpYubiKey = new System.Windows.Forms.GroupBox();
+            this.chkEnableYubiKey = new System.Windows.Forms.CheckBox();
+            this.lblYubiKeyServer = new System.Windows.Forms.Label();
+            this.txtYubiKeyServer = new System.Windows.Forms.TextBox();
+            this.lblYubiKeyAPIKey = new System.Windows.Forms.Label();
+            this.txtYubiKeyAPIKey = new System.Windows.Forms.TextBox();
+            this.lblYubiKeyClientID = new System.Windows.Forms.Label();
+            this.txtYubiKeyClientID = new System.Windows.Forms.TextBox();
+            this.btnConfigureYubiKey = new System.Windows.Forms.Button();
 
-            // btnClose
-            this.btnClose.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
-            this.btnClose.DialogResult = System.Windows.Forms.DialogResult.Cancel;
-            this.btnClose.Location = new System.Drawing.Point(497, 416);
-            this.btnClose.Name = "btnClose";
-            this.btnClose.Size = new System.Drawing.Size(75, 23);
-            this.btnClose.TabIndex = 1;
-            this.btnClose.Text = "Close";
-            this.btnClose.UseVisualStyleBackColor = true;
-            this.btnClose.Click += new System.EventHandler(this.btnClose_Click);
+            // Server key and certificate
+            this.grpServerCrypto = new System.Windows.Forms.GroupBox();
+            this.lblServerKey = new System.Windows.Forms.Label();
+            this.cmbServerKey = new System.Windows.Forms.ComboBox();
+            this.btnGenerateServerKey = new System.Windows.Forms.Button();
+            this.lblServerCert = new System.Windows.Forms.Label();
+            this.cmbServerCert = new System.Windows.Forms.ComboBox();
+            this.btnGenerateServerCert = new System.Windows.Forms.Button();
 
-            // ConfigPreviewForm
-            this.AcceptButton = this.btnClose;
-            this.CancelButton = this.btnClose;
-            this.ClientSize = new System.Drawing.Size(584, 451);
-            this.Controls.Add(this.btnClose);
-            this.Controls.Add(this.txtConfigPreview);
-            this.MinimizeBox = false;
-            this.Name = "ConfigPreviewForm";
-            this.ShowInTaskbar = false;
-            this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
-            this.Text = "SSH Config Preview";
-            this.ResumeLayout(false);
-            this.PerformLayout();
-        }
+            // Logging settings
+            this.grpLogging = new System.Windows.Forms.GroupBox();
+            this.lblLogLevel = new System.Windows.Forms.Label();
+            this.cmbLogLevel = new System.Windows.Forms.ComboBox();
+            this.chkEnableAuditLogging = new System.Windows.Forms.CheckBox();
+            this.lblLogFilePath = new System.Windows.Forms.Label();
+            this.txtLogFilePath = new System.Windows.Forms.TextBox();
+            this.btnBrowseLogFile = new System.Windows.Forms.Button();
 
-        private void btnClose_Click(object sender, EventArgs e)
-        {
-            Close();
-        }
-    }
-
-    // Server key generation form
-    public class ServerKeyGenerationForm : Form
-    {
-        private System.Windows.Forms.Label lblKeyName;
-        private System.Windows.Forms.TextBox txtKeyName;
-        private System.Windows.Forms.Label lblKeySize;
-        private System.Windows.Forms.NumericUpDown numKeySize;
-        private System.Windows.Forms.Button btnGenerate;
-        private System.Windows.Forms.Button btnCancel;
-
-        private ServerSecurityManager _securityManager;
-        public string GeneratedKeyName { get; private set; }
-
-        public ServerKeyGenerationForm()
-        {
-            InitializeComponent();
-            _securityManager = new ServerSecurityManager();
-        }
-
-        private void InitializeComponent()
-        {
-            this.lblKeyName = new System.Windows.Forms.Label();
-            this.txtKeyName = new System.Windows.Forms.TextBox();
-            this.lblKeySize = new System.Windows.Forms.Label();
-            this.numKeySize = new System.Windows.Forms.NumericUpDown();
-            this.btnGenerate = new System.Windows.Forms.Button();
+            this.btnOK = new System.Windows.Forms.Button();
             this.btnCancel = new System.Windows.Forms.Button();
-            ((System.ComponentModel.ISupportInitialize)(this.numKeySize)).BeginInit();
+
+            ((System.ComponentModel.ISupportInitialize)(this.numListenPort)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numMaxAuthTries)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numLoginGraceTime)).BeginInit();
+            this.grpAuthentication.SuspendLayout();
+            this.grpYubiKey.SuspendLayout();
+            this.grpServerCrypto.SuspendLayout();
+            this.grpLogging.SuspendLayout();
             this.SuspendLayout();
 
-            // lblKeyName
-            this.lblKeyName.AutoSize = true;
-            this.lblKeyName.Location = new System.Drawing.Point(12, 15);
-            this.lblKeyName.Name = "lblKeyName";
-            this.lblKeyName.Size = new System.Drawing.Size(60, 13);
-            this.lblKeyName.TabIndex = 0;
-            this.lblKeyName.Text = "Key Name:";
+            // lblName
+            this.lblName.AutoSize = true;
+            this.lblName.Location = new System.Drawing.Point(12, 15);
+            this.lblName.Name = "lblName";
+            this.lblName.Size = new System.Drawing.Size(38, 13);
+            this.lblName.TabIndex = 0;
+            this.lblName.Text = "Name:";
 
-            // txtKeyName
-            this.txtKeyName.Location = new System.Drawing.Point(78, 12);
-            this.txtKeyName.Name = "txtKeyName";
-            this.txtKeyName.Size = new System.Drawing.Size(224, 20);
-            this.txtKeyName.TabIndex = 1;
+            // txtName
+            this.txtName.Location = new System.Drawing.Point(120, 12);
+            this.txtName.Name = "txtName";
+            this.txtName.Size = new System.Drawing.Size(252, 20);
+            this.txtName.TabIndex = 1;
 
-            // lblKeySize
-            this.lblKeySize.AutoSize = true;
-            this.lblKeySize.Location = new System.Drawing.Point(12, 41);
-            this.lblKeySize.Name = "lblKeySize";
-            this.lblKeySize.Size = new System.Drawing.Size(52, 13);
-            this.lblKeySize.TabIndex = 2;
-            this.lblKeySize.Text = "Key Size:";
+            // lblListenPort
+            this.lblListenPort.AutoSize = true;
+            this.lblListenPort.Location = new System.Drawing.Point(12, 41);
+            this.lblListenPort.Name = "lblListenPort";
+            this.lblListenPort.Size = new System.Drawing.Size(63, 13);
+            this.lblListenPort.TabIndex = 2;
+            this.lblListenPort.Text = "Listen Port:";
 
-            // numKeySize
-            this.numKeySize.Location = new System.Drawing.Point(78, 39);
-            this.numKeySize.Maximum = new decimal(new int[] {
-            8192,
+            // numListenPort
+            this.numListenPort.Location = new System.Drawing.Point(120, 39);
+            this.numListenPort.Maximum = new decimal(new int[] {
+            65535,
             0,
             0,
             0});
-            this.numKeySize.Minimum = new decimal(new int[] {
-            1024,
-            0,
-            0,
-            0});
-            this.numKeySize.Name = "numKeySize";
-            this.numKeySize.Size = new System.Drawing.Size(120, 20);
-            this.numKeySize.TabIndex = 3;
-            this.numKeySize.Value = new decimal(new int[] {
-            2048,
-            0,
-            0,
-            0});
-
-            // btnGenerate
-            this.btnGenerate.Location = new System.Drawing.Point(146, 65);
-            this.btnGenerate.Name = "btnGenerate";
-            this.btnGenerate.Size = new System.Drawing.Size(75, 23);
-            this.btnGenerate.TabIndex = 4;
-            this.btnGenerate.Text = "Generate";
-            this.btnGenerate.UseVisualStyleBackColor = true;
-            this.btnGenerate.Click += new System.EventHandler(this.btnGenerate_Click);
-
-            // btnCancel
-            this.btnCancel.DialogResult = System.Windows.Forms.DialogResult.Cancel;
-            this.btnCancel.Location = new System.Drawing.Point(227, 65);
-            this.btnCancel.Name = "btnCancel";
-            this.btnCancel.Size = new System.Drawing.Size(75, 23);
-            this.btnCancel.TabIndex = 5;
-            this.btnCancel.Text = "Cancel";
-            this.btnCancel.UseVisualStyleBackColor = true;
-            this.btnCancel.Click += new System.EventHandler(this.btnCancel_Click);
-
-            // ServerKeyGenerationForm
-            this.AcceptButton = this.btnGenerate;
-            this.CancelButton = this.btnCancel;
-            this.ClientSize = new System.Drawing.Size(314, 101);
-            this.Controls.Add(this.btnCancel);
-            this.Controls.Add(this.btnGenerate);
-            this.Controls.Add(this.numKeySize);
-            this.Controls.Add(this.lblKeySize);
-            this.Controls.Add(this.txtKeyName);
-            this.Controls.Add(this.lblKeyName);
-            this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
-            this.MinimizeBox = false;
-            this.Name = "ServerKeyGenerationForm";
-            this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
-            this.Text = "Generate Server Key";
-            ((System.ComponentModel.ISupportInitialize)(this.numKeySize)).EndInit();
-            this.ResumeLayout(false);
-            this.PerformLayout();
-        }
-
-        private void btnGenerate_Click(object sender, EventArgs e)
-        {
-            if (string.IsNullOrWhiteSpace(txtKeyName.Text))
-            {
-                MessageBox.Show("Please enter a name for the key.", "Validation Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            // Generate the key
-            bool success = _securityManager.GenerateServerKeyPair(
-                txtKeyName.Text,
-                (int)numKeySize.Value);
-
-            if (success)
-            {
-                GeneratedKeyName = txtKeyName.Text;
-                DialogResult = DialogResult.OK;
-                Close();
-            }
-        }
-
-        private void btnCancel_Click(object sender, EventArgs e)
-        {
-            DialogResult = DialogResult.Cancel;
-            Close();
-        }
-    }
-
-    // Server certificate form
-    public class ServerCertificateForm : Form
-    {
-        private System.Windows.Forms.Label lblCertName;
-        private System.Windows.Forms.TextBox txtCertName;
-        private System.Windows.Forms.Label lblSubjectName;
-        private System.Windows.Forms.TextBox txtSubjectName;
-        private System.Windows.Forms.Label lblValidYears;
-        private System.Windows.Forms.NumericUpDown numValidYears;
-        private System.Windows.Forms.Button btnGenerate;
-        private System.Windows.Forms.Button btnCancel;
-
-        private ServerSecurityManager _securityManager;
-        public string GeneratedCertName { get; private set; }
-
-        public ServerCertificateForm()
-        {
-            InitializeComponent();
-            _securityManager = new ServerSecurityManager();
-        }
-
-        private void InitializeComponent()
-        {
-            this.lblCertName = new System.Windows.Forms.Label();
-            this.txtCertName = new System.Windows.Forms.TextBox();
-            this.lblSubjectName = new System.Windows.Forms.Label();
-            this.txtSubjectName = new System.Windows.Forms.TextBox();
-            this.lblValidYears = new System.Windows.Forms.Label();
-            this.numValidYears = new System.Windows.Forms.NumericUpDown();
-            this.btnGenerate = new System.Windows.Forms.Button();
-            this.btnCancel = new System.Windows.Forms.Button();
-            ((System.ComponentModel.ISupportInitialize)(this.numValidYears)).BeginInit();
-            this.SuspendLayout();
-
-            // lblCertName
-            this.lblCertName.AutoSize = true;
-            this.lblCertName.Location = new System.Drawing.Point(12, 15);
-            this.lblCertName.Name = "lblCertName";
-            this.lblCertName.Size = new System.Drawing.Size(93, 13);
-            this.lblCertName.TabIndex = 0;
-            this.lblCertName.Text = "Certificate Name:";
-
-            // txtCertName
-            this.txtCertName.Location = new System.Drawing.Point(111, 12);
-            this.txtCertName.Name = "txtCertName";
-            this.txtCertName.Size = new System.Drawing.Size(191, 20);
-            this.txtCertName.TabIndex = 1;
-
-            // lblSubjectName
-            this.lblSubjectName.AutoSize = true;
-            this.lblSubjectName.Location = new System.Drawing.Point(12, 41);
-            this.lblSubjectName.Name = "lblSubjectName";
-            this.lblSubjectName.Size = new System.Drawing.Size(80, 13);
-            this.lblSubjectName.TabIndex = 2;
-            this.lblSubjectName.Text = "Subject Name:";
-
-            // txtSubjectName
-            this.txtSubjectName.Location = new System.Drawing.Point(111, 38);
-            this.txtSubjectName.Name = "txtSubjectName";
-            this.txtSubjectName.Size = new System.Drawing.Size(191, 20);
-            this.txtSubjectName.TabIndex = 3;
-            this.txtSubjectName.Text = "CN=SSHTunnelServer";
-
-            // lblValidYears
-            this.lblValidYears.AutoSize = true;
-            this.lblValidYears.Location = new System.Drawing.Point(12, 67);
-            this.lblValidYears.Name = "lblValidYears";
-            this.lblValidYears.Size = new System.Drawing.Size(85, 13);
-            this.lblValidYears.TabIndex = 4;
-            this.lblValidYears.Text = "Valid for (years):";
-
-            // numValidYears
-            this.numValidYears.Location = new System.Drawing.Point(111, 65);
-            this.numValidYears.Maximum = new decimal(new int[] {
-            10,
-            0,
-            0,
-            0});
-            this.numValidYears.Minimum = new decimal(new int[] {
+            this.numListenPort.Minimum = new decimal(new int[] {
             1,
             0,
             0,
             0});
-            this.numValidYears.Name = "numValidYears";
-            this.numValidYears.Size = new System.Drawing.Size(60, 20);
-            this.numValidYears.TabIndex = 5;
-            this.numValidYears.Value = new decimal(new int[] {
-            5,
+            this.numListenPort.Name = "numListenPort";
+            this.numListenPort.Size = new System.Drawing.Size(80, 20);
+            this.numListenPort.TabIndex = 3;
+            this.numListenPort.Value = new decimal(new int[] {
+            22,
             0,
             0,
             0});
 
-            // btnGenerate
-            this.btnGenerate.Location = new System.Drawing.Point(146, 91);
-            this.btnGenerate.Name = "btnGenerate";
-            this.btnGenerate.Size = new System.Drawing.Size(75, 23);
-            this.btnGenerate.TabIndex = 6;
-            this.btnGenerate.Text = "Generate";
-            this.btnGenerate.UseVisualStyleBackColor = true;
-            this.btnGenerate.Click += new System.EventHandler(this.btnGenerate_Click);
+            // lblAllowedClients
+            this.lblAllowedClients.AutoSize = true;
+            this.lblAllowedClients.Location = new System.Drawing.Point(12, 67);
+            this.lblAllowedClients.Name = "lblAllowedClients";
+            this.lblAllowedClients.Size = new System.Drawing.Size(85, 13);
+            this.lblAllowedClients.TabIndex = 4;
+            this.lblAllowedClients.Text = "Allowed Clients:";
 
-            // btnCancel
-            this.btnCancel.DialogResult = System.Windows.Forms.DialogResult.Cancel;
-            this.btnCancel.Location = new System.Drawing.Point(227, 91);
+            // txtAllowedClients
+            this.txtAllowedClients.Location = new System.Drawing.Point(120, 64);
+            this.txtAllowedClients.Name = "txtAllowedClients";
+            this.txtAllowedClients.Size = new System.Drawing.Size(252, 20);
+            this.txtAllowedClients.TabIndex = 5;
+
+            // lblAllowedClientsHelp
+            this.lblAllowedClientsHelp.Location = new System.Drawing.Point(117, 87);
+            this.lblAllowedClientsHelp.Name = "lblAllowedClientsHelp";
+            this.lblAllowedClientsHelp.Size = new System.Drawing.Size(255, 30);
+            this.lblAllowedClientsHelp.TabIndex = 6;
+            this.lblAllowedClientsHelp.Text = "IP addresses separated by commas. Use * to allow all clients.";
+
+            // chkUseEncryption
+            this.chkUseEncryption.AutoSize = true;
+            this.chkUseEncryption.Location = new System.Drawing.Point(120, 120);
+            this.chkUseEncryption.Name = "chkUseEncryption";
+            this.chkUseEncryption.Size = new System.Drawing.Size(207, 17);
+            this.chkUseEncryption.TabIndex = 7;
+            this.chkUseEncryption.Text = "Handle Additional Encrypted Tunnels";
+            this.chkUseEncryption.UseVisualStyleBackColor = true;
+
+            // lblSecurityLevel
+            this.lblSecurityLevel.AutoSize = true;
+            this.lblSecurityLevel.Location = new System.Drawing.Point(12, 150);
+            this.lblSecurityLevel.Name = "lblSecurityLevel";
+            this.lblSecurityLevel.Size = new System.Drawing.Size(80, 13);
+            this.lblSecurityLevel.TabIndex = 8;
+            this.lblSecurityLevel.Text = "Security Level:";
+
+            // cmbSecurityLevel
+            this.cmbSecurityLevel.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbSecurityLevel.FormattingEnabled = true;
+            this.cmbSecurityLevel.Location = new System.Drawing.Point(120, 147);
+            this.cmbSecurityLevel.Name = "cmbSecurityLevel";
+            this.cmbSecurityLevel.Size = new System.Drawing.Size(121, 21);
+            this.cmbSecurityLevel.TabIndex = 9;
+            this.cmbSecurityLevel.SelectedIndexChanged += new System.EventHandler(this.cmbSecurityLevel_SelectedIndexChanged);
+
+            // Authentication group
+            this.grpAuthentication.Location = new System.Drawing.Point(12, 180);
+            this.grpAuthentication.Name = "grpAuthentication";
+            this.grpAuthentication.Size = new System.Drawing.Size(360, 120);
+            this.grpAuthentication.TabIndex = 10;
+            this.grpAuthentication.TabStop = false;
+            this.grpAuthentication.Text = "Authentication Methods";
+
+            // Authentication checkboxes
+            this.chkPasswordAuth.AutoSize = true;
+            this.chkPasswordAuth.Location = new System.Drawing.Point(20, 20);
+            this.chkPasswordAuth.Name = "chkPasswordAuth";
+            this.chkPasswordAuth.Size = new System.Drawing.Size(120, 17);
+            this.chkPasswordAuth.TabIndex = 0;
+            this.chkPasswordAuth.Text = "Password Authentication";
+            this.chkPasswordAuth.UseVisualStyleBackColor = true;
+
+            this.chkPublicKeyAuth.AutoSize = true;
+            this.chkPublicKeyAuth.Location = new System.Drawing.Point(20, 43);
+            this.chkPublicKeyAuth.Name = "chkPublicKeyAuth";
+            this.chkPublicKeyAuth.Size = new System.Drawing.Size(135, 17);
+            this.chkPublicKeyAuth.TabIndex = 1;
+            this.chkPublicKeyAuth.Text = "Public Key Authentication";
+            this.chkPublicKeyAuth.UseVisualStyleBackColor = true;
+
+            this.chkCertificateAuth.AutoSize = true;
+            this.chkCertificateAuth.Location = new System.Drawing.Point(20, 66);
+            this.chkCertificateAuth.Name = "chkCertificateAuth";
+            this.chkCertificateAuth.Size = new System.Drawing.Size(141, 17);
+            this.chkCertificateAuth.TabIndex = 2;
+            this.chkCertificateAuth.Text = "Certificate Authentication";
+            this.chkCertificateAuth.UseVisualStyleBackColor = true;
+
+            this.chkKeyboardInteractiveAuth.AutoSize = true;
+            this.chkKeyboardInteractiveAuth.Location = new System.Drawing.Point(20, 89);
+            this.chkKeyboardInteractiveAuth.Name = "chkKeyboardInteractiveAuth";
+            this.chkKeyboardInteractiveAuth.Size = new System.Drawing.Size(176, 17);
+            this.chkKeyboardInteractiveAuth.TabIndex = 3;
+            this.chkKeyboardInteractiveAuth.Text = "Keyboard Interactive Authentication";
+            this.chkKeyboardInteractiveAuth.UseVisualStyleBackColor = true;
+
+            this.chkYubikeyAuth.AutoSize = true;
+            this.chkYubikeyAuth.Location = new System.Drawing.Point(200, 20);
+            this.chkYubikeyAuth.Name = "chkYubikeyAuth";
+            this.chkYubikeyAuth.Size = new System.Drawing.Size(131, 17);
+            this.chkYubikeyAuth.TabIndex = 4;
+            this.chkYubikeyAuth.Text = "YubiKey Authentication";
+            this.chkYubikeyAuth.UseVisualStyleBackColor = true;
+
+            this.chkTwoFactorAuth.AutoSize = true;
+            this.chkTwoFactorAuth.Location = new System.Drawing.Point(200, 43);
+            this.chkTwoFactorAuth.Name = "chkTwoFactorAuth";
+            this.chkTwoFactorAuth.Size = new System.Drawing.Size(147, 17);
+            this.chkTwoFactorAuth.TabIndex = 5;
+            this.chkTwoFactorAuth.Text = "Two-Factor Authentication";
+            this.chkTwoFactorAuth.UseVisualStyleBackColor = true;
+
+            // Authentication settings
+            this.lblMaxAuthTries.AutoSize = true;
+            this.lblMaxAuthTries.Location = new System.Drawing.Point(12, 320);
+            this.lblMaxAuthTries.Name = "lblMaxAuthTries";
+            this.lblMaxAuthTries.Size = new System.Drawing.Size(83, 13);
+            this.lblMaxAuthTries.TabIndex = 11;
+            this.lblMaxAuthTries.Text = "Max Auth Tries:";
+
+            this.numMaxAuthTries.Location = new System.Drawing.Point(120, 318);
+            this.numMaxAuthTries.Maximum = new decimal(new int[] {
+            20,
+            0,
+            0,
+            0});
+            this.numMaxAuthTries.Minimum = new decimal(new int[] {
+            1,
+            0,
+            0,
+            0});
+            this.numMaxAuthTries.Name = "numMaxAuthTries";
+            this.numMaxAuthTries.Size = new System.Drawing.Size(60, 20);
+            this.numMaxAuthTries.TabIndex = 12;
+            this.numMaxAuthTries.Value = new decimal(new int[] {
+            6,
+            0,
+            0,
+            0});
+
+            this.lblLoginGraceTime.AutoSize = true;
+            this.lblLoginGraceTime.Location = new System.Drawing.Point(12, 346);
+            this.lblLoginGraceTime.Name = "lblLoginGraceTime";
+            this.lblLoginGraceTime.Size = new System.Drawing.Size(101, 13);
+            this.lblLoginGraceTime.TabIndex = 13;
+            this.lblLoginGraceTime.Text = "Login Grace Time (s):";
+
+            this.numLoginGraceTime.Location = new System.Drawing.Point(120, 344);
+            this.numLoginGraceTime.Maximum = new decimal(new int[] {
+            600,
+            0,
+            0,
+            0});
+            this.numLoginGraceTime.Minimum = new decimal(new int[] {
+            10,
+            0,
+            0,
+            0});
+            this.numLoginGraceTime.Name = "numLoginGraceTime";
+            this.numLoginGraceTime.Size = new System.Drawing.Size(60, 20);
+            this.numLoginGraceTime.TabIndex = 14;
+            this.numLoginGraceTime.Value = new decimal(new int[] {
+            120,
+            0,
+            0,
+            0});
+
+            this.chkPermitRootLogin.AutoSize = true;
+            this.chkPermitRootLogin.Location = new System.Drawing.Point(120, 370);
+            this.chkPermitRootLogin.Name = "chkPermitRootLogin";
+            this.chkPermitRootLogin.Size = new System.Drawing.Size(105, 17);
+            this.chkPermitRootLogin.TabIndex = 15;
+            this.chkPermitRootLogin.Text = "Permit Root Login";
+            this.chkPermitRootLogin.UseVisualStyleBackColor = true;
+
+            // YubiKey settings group
+            this.grpYubiKey.Location = new System.Drawing.Point(12, 400);
+            this.grpYubiKey.Name = "grpYubiKey";
+            this.grpYubiKey.Size = new System.Drawing.Size(360, 130);
+            this.grpYubiKey.TabIndex = 16;
+            this.grpYubiKey.TabStop = false;
+            this.grpYubiKey.Text = "YubiKey Settings";
+
+            // YubiKey controls
+            this.chkEnableYubiKey.AutoSize = true;
+            this.chkEnableYubiKey.Location = new System.Drawing.Point(20, 20);
+            this.chkEnableYubiKey.Name = "chkEnableYubiKey";
+            this.chkEnableYubiKey.Size = new System.Drawing.Size(100, 17);
+            this.chkEnableYubiKey.TabIndex = 0;
+            this.chkEnableYubiKey.Text = "Enable YubiKey";
+            this.chkEnableYubiKey.UseVisualStyleBackColor = true;
+            this.chkEnableYubiKey.CheckedChanged += new System.EventHandler(this.chkEnableYubiKey_CheckedChanged);
+
+            this.lblYubiKeyServer.AutoSize = true;
+            this.lblYubiKeyServer.Location = new System.Drawing.Point(20, 46);
+            this.lblYubiKeyServer.Name = "lblYubiKeyServer";
+            this.lblYubiKeyServer.Size = new System.Drawing.Size(87, 13);
+            this.lblYubiKeyServer.TabIndex = 1;
+            this.lblYubiKeyServer.Text = "YubiKey Server:";
+
+            this.txtYubiKeyServer.Location = new System.Drawing.Point(140, 43);
+            this.txtYubiKeyServer.Name = "txtYubiKeyServer";
+            this.txtYubiKeyServer.Size = new System.Drawing.Size(200, 20);
+            this.txtYubiKeyServer.TabIndex = 2;
+
+            this.lblYubiKeyAPIKey.AutoSize = true;
+            this.lblYubiKeyAPIKey.Location = new System.Drawing.Point(20, 72);
+            this.lblYubiKeyAPIKey.Name = "lblYubiKeyAPIKey";
+            this.lblYubiKeyAPIKey.Size = new System.Drawing.Size(91, 13);
+            this.lblYubiKeyAPIKey.TabIndex = 3;
+            this.lblYubiKeyAPIKey.Text = "YubiKey API Key:";
+
+            this.txtYubiKeyAPIKey.Location = new System.Drawing.Point(140, 69);
+            this.txtYubiKeyAPIKey.Name = "txtYubiKeyAPIKey";
+            this.txtYubiKeyAPIKey.Size = new System.Drawing.Size(200, 20);
+            this.txtYubiKeyAPIKey.TabIndex = 4;
+
+            this.lblYubiKeyClientID.AutoSize = true;
+            this.lblYubiKeyClientID.Location = new System.Drawing.Point(20, 98);
+            this.lblYubiKeyClientID.Name = "lblYubiKeyClientID";
+            this.lblYubiKeyClientID.Size = new System.Drawing.Size(96, 13);
+            this.lblYubiKeyClientID.TabIndex = 5;
+            this.lblYubiKeyClientID.Text = "YubiKey Client ID:";
+
+            this.txtYubiKeyClientID.Location = new System.Drawing.Point(140, 95);
+            this.txtYubiKeyClientID.Name = "txtYubiKeyClientID";
+            this.txtYubiKeyClientID.Size = new System.Drawing.Size(200, 20);
+            this.txtYubiKeyClientID.TabIndex = 6;
+
+            this.btnConfigureYubiKey.Location = new System.Drawing.Point(270, 15);
+            this.btnConfigureYubiKey.Name = "btnConfigureYubiKey";
+            this.btnConfigureYubiKey.Size = new System.Drawing.Size(70, 23);
+            this.btnConfigureYubiKey.TabIndex = 7;
+            this.btnConfigureYubiKey.Text = "Configure";
+            this.btnConfigureYubiKey.UseVisualStyleBackColor = true;
+            this.btnConfigureYubiKey.Click += new System.EventHandler(this.btnConfigureYubiKey_Click);
+
+            // Server crypto group
+            this.grpServerCrypto.Location = new System.Drawing.Point(12, 540);
+            this.grpServerCrypto.Name = "grpServerCrypto";
+            this.grpServerCrypto.Size = new System.Drawing.Size(360, 100);
+            this.grpServerCrypto.TabIndex = 17;
+            this.grpServerCrypto.TabStop = false;
+            this.grpServerCrypto.Text = "Server Key and Certificate";
+
+            // Server key and certificate controls
+            this.lblServerKey.AutoSize = true;
+            this.lblServerKey.Location = new System.Drawing.Point(20, 25);
+            this.lblServerKey.Name = "lblServerKey";
+            this.lblServerKey.Size = new System.Drawing.Size(63, 13);
+            this.lblServerKey.TabIndex = 0;
+            this.lblServerKey.Text = "Server Key:";
+
+            this.cmbServerKey.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbServerKey.FormattingEnabled = true;
+            this.cmbServerKey.Location = new System.Drawing.Point(100, 22);
+            this.cmbServerKey.Name = "cmbServerKey";
+            this.cmbServerKey.Size = new System.Drawing.Size(180, 21);
+            this.cmbServerKey.TabIndex = 1;
+
+            this.btnGenerateServerKey.Location = new System.Drawing.Point(286, 20);
+            this.btnGenerateServerKey.Name = "btnGenerateServerKey";
+            this.btnGenerateServerKey.Size = new System.Drawing.Size(60, 23);
+            this.btnGenerateServerKey.TabIndex = 2;
+            this.btnGenerateServerKey.Text = "Generate";
+            this.btnGenerateServerKey.UseVisualStyleBackColor = true;
+            this.btnGenerateServerKey.Click += new System.EventHandler(this.btnGenerateServerKey_Click);
+
+            this.lblServerCert.AutoSize = true;
+            this.lblServerCert.Location = new System.Drawing.Point(20, 60);
+            this.lblServerCert.Name = "lblServerCert";
+            this.lblServerCert.Size = new System.Drawing.Size(70, 13);
+            this.lblServerCert.TabIndex = 3;
+            this.lblServerCert.Text = "Server Cert:";
+
+            this.cmbServerCert.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbServerCert.FormattingEnabled = true;
+            this.cmbServerCert.Location = new System.Drawing.Point(100, 57);
+            this.cmbServerCert.Name = "cmbServerCert";
+            this.cmbServerCert.Size = new System.Drawing.Size(180, 21);
+            this.cmbServerCert.TabIndex = 4;
+
+            this.btnGenerateServerCert.Location = new System.Drawing.Point(286, 55);
+            this.btnGenerateServerCert.Name = "btnGenerateServerCert";
+            this.btnGenerateServerCert.Size = new System.Drawing.Size(60, 23);
+            this.btnGenerateServerCert.TabIndex = 5;
+            this.btnGenerateServerCert.Text = "Generate";
+            this.btnGenerateServerCert.UseVisualStyleBackColor = true;
+            this.btnGenerateServerCert.Click += new System.EventHandler(this.btnGenerateServerCert_Click);
+
+            // Logging group
+            this.grpLogging.Location = new System.Drawing.Point(12, 650);
+            this.grpLogging.Name = "grpLogging";
+            this.grpLogging.Size = new System.Drawing.Size(360, 100);
+            this.grpLogging.TabIndex = 18;
+            this.grpLogging.TabStop = false;
+            this.grpLogging.Text = "Logging";
+
+            // Logging controls
+            this.lblLogLevel.AutoSize = true;
+            this.lblLogLevel.Location = new System.Drawing.Point(20, 25);
+            this.lblLogLevel.Name = "lblLogLevel";
+            this.lblLogLevel.Size = new System.Drawing.Size(61, 13);
+            this.lblLogLevel.TabIndex = 0;
+            this.lblLogLevel.Text = "Log Level:";
+
+            this.cmbLogLevel.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbLogLevel.FormattingEnabled = true;
+            this.cmbLogLevel.Location = new System.Drawing.Point(100, 22);
+            this.cmbLogLevel.Name = "cmbLogLevel";
+            this.cmbLogLevel.Size = new System.Drawing.Size(121, 21);
+            this.cmbLogLevel.TabIndex = 1;
+
+            this.chkEnableAuditLogging.AutoSize = true;
+            this.chkEnableAuditLogging.Location = new System.Drawing.Point(20, 50);
+            this.chkEnableAuditLogging.Name = "chkEnableAuditLogging";
+            this.chkEnableAuditLogging.Size = new System.Drawing.Size(124, 17);
+            this.chkEnableAuditLogging.TabIndex = 2;
+            this.chkEnableAuditLogging.Text = "Enable Audit Logging";
+            this.chkEnableAuditLogging.UseVisualStyleBackColor = true;
+
+            this.lblLogFilePath.AutoSize = true;
+            this.lblLogFilePath.Location = new System.Drawing.Point(20, 75);
+            this.lblLogFilePath.Name = "lblLogFilePath";
+            this.lblLogFilePath.Size = new System.Drawing.Size(73, 13);
+            this.lblLogFilePath.TabIndex = 3;
+            this.lblLogFilePath.Text = "Log File Path:";
+
+            this.txtLogFilePath.Location = new System.Drawing.Point(100, 72);
+            this.txtLogFilePath.Name = "txtLogFilePath";
+            this.txtLogFilePath.Size = new System.Drawing.Size(200, 20);
+            this.txtLogFilePath.TabIndex = 4;
+
+            this.btnBrowseLogFile.Location = new System.Drawing.Point(306, 70);
+            this.btnBrowseLogFile.Name = "btnBrowseLogFile";
+            this.btnBrowseLogFile.Size = new System.Drawing.Size(40, 23);
+            this.btnBrowseLogFile.TabIndex = 5;
+            this.btnBrowseLogFile.Text = "...";
+            this.btnBrowseLogFile.UseVisualStyleBackColor = true;
+            this.btnBrowseLogFile.Click += new System.EventHandler(this.btnBrowseLogFile_Click);
+
+            // OK and Cancel buttons
+            this.btnOK.Location = new System.Drawing.Point(216, 760);
+            this.btnOK.Name = "btnOK";
+            this.btnOK.Size = new System.Drawing.Size(75, 23);
+            this.btnOK.TabIndex = 19;
+            this.btnOK.Text = "OK";
+            this.btnOK.UseVisualStyleBackColor = true;
+            this.btnOK.Click += new System.EventHandler(this.btnOK_Click);
+
+            this.btnCancel.Location = new System.Drawing.Point(297, 760);
             this.btnCancel.Name = "btnCancel";
             this.btnCancel.Size = new System.Drawing.Size(75, 23);
-            this.btnCancel.TabIndex = 7;
+            this.btnCancel.TabIndex = 20;
             this.btnCancel.Text = "Cancel";
             this.btnCancel.UseVisualStyleBackColor = true;
             this.btnCancel.Click += new System.EventHandler(this.btnCancel_Click);
 
-            // ServerCertificateForm
-            this.AcceptButton = this.btnGenerate;
+            // Add controls to groups
+            this.grpAuthentication.Controls.Add(this.chkPasswordAuth);
+            this.grpAuthentication.Controls.Add(this.chkPublicKeyAuth);
+            this.grpAuthentication.Controls.Add(this.chkCertificateAuth);
+            this.grpAuthentication.Controls.Add(this.chkKeyboardInteractiveAuth);
+            this.grpAuthentication.Controls.Add(this.chkYubikeyAuth);
+            this.grpAuthentication.Controls.Add(this.chkTwoFactorAuth);
+
+            this.grpYubiKey.Controls.Add(this.chkEnableYubiKey);
+            this.grpYubiKey.Controls.Add(this.lblYubiKeyServer);
+            this.grpYubiKey.Controls.Add(this.txtYubiKeyServer);
+            this.grpYubiKey.Controls.Add(this.lblYubiKeyAPIKey);
+            this.grpYubiKey.Controls.Add(this.txtYubiKeyAPIKey);
+            this.grpYubiKey.Controls.Add(this.lblYubiKeyClientID);
+            this.grpYubiKey.Controls.Add(this.txtYubiKeyClientID);
+            this.grpYubiKey.Controls.Add(this.btnConfigureYubiKey);
+
+            this.grpServerCrypto.Controls.Add(this.lblServerKey);
+            this.grpServerCrypto.Controls.Add(this.cmbServerKey);
+            this.grpServerCrypto.Controls.Add(this.btnGenerateServerKey);
+            this.grpServerCrypto.Controls.Add(this.lblServerCert);
+            this.grpServerCrypto.Controls.Add(this.cmbServerCert);
+            this.grpServerCrypto.Controls.Add(this.btnGenerateServerCert);
+
+            this.grpLogging.Controls.Add(this.lblLogLevel);
+            this.grpLogging.Controls.Add(this.cmbLogLevel);
+            this.grpLogging.Controls.Add(this.chkEnableAuditLogging);
+            this.grpLogging.Controls.Add(this.lblLogFilePath);
+            this.grpLogging.Controls.Add(this.txtLogFilePath);
+            this.grpLogging.Controls.Add(this.btnBrowseLogFile);
+
+            // ServerConfigForm
+            this.AcceptButton = this.btnOK;
             this.CancelButton = this.btnCancel;
-            this.ClientSize = new System.Drawing.Size(314, 126);
+            this.ClientSize = new System.Drawing.Size(384, 795);
             this.Controls.Add(this.btnCancel);
-            this.Controls.Add(this.btnGenerate);
-            this.Controls.Add(this.numValidYears);
-            this.Controls.Add(this.lblValidYears);
-            this.Controls.Add(this.txtSubjectName);
-            this.Controls.Add(this.lblSubjectName);
-            this.Controls.Add(this.txtCertName);
-            this.Controls.Add(this.lblCertName);
+            this.Controls.Add(this.btnOK);
+            this.Controls.Add(this.grpLogging);
+            this.Controls.Add(this.grpServerCrypto);
+            this.Controls.Add(this.grpYubiKey);
+            this.Controls.Add(this.chkPermitRootLogin);
+            this.Controls.Add(this.numLoginGraceTime);
+            this.Controls.Add(this.lblLoginGraceTime);
+            this.Controls.Add(this.numMaxAuthTries);
+            this.Controls.Add(this.lblMaxAuthTries);
+            this.Controls.Add(this.grpAuthentication);
+            this.Controls.Add(this.cmbSecurityLevel);
+            this.Controls.Add(this.lblSecurityLevel);
+            this.Controls.Add(this.chkUseEncryption);
+            this.Controls.Add(this.lblAllowedClientsHelp);
+            this.Controls.Add(this.txtAllowedClients);
+            this.Controls.Add(this.lblAllowedClients);
+            this.Controls.Add(this.numListenPort);
+            this.Controls.Add(this.lblListenPort);
+            this.Controls.Add(this.txtName);
+            this.Controls.Add(this.lblName);
             this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
             this.MinimizeBox = false;
-            this.Name = "ServerCertificateForm";
+            this.Name = "ServerConfigForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
-            this.Text = "Generate Server Certificate";
-            ((System.ComponentModel.ISupportInitialize)(this.numValidYears)).EndInit();
+            this.Text = "SSH Server Configuration";
+
+            ((System.ComponentModel.ISupportInitialize)(this.numListenPort)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numMaxAuthTries)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numLoginGraceTime)).EndInit();
+            this.grpAuthentication.ResumeLayout(false);
+            this.grpAuthentication.PerformLayout();
+            this.grpYubiKey.ResumeLayout(false);
+            this.grpYubiKey.PerformLayout();
+            this.grpServerCrypto.ResumeLayout(false);
+            this.grpServerCrypto.PerformLayout();
+            this.grpLogging.ResumeLayout(false);
+            this.grpLogging.PerformLayout();
             this.ResumeLayout(false);
             this.PerformLayout();
         }
 
-        private void btnGenerate_Click(object sender, EventArgs e)
-        {
-            if (string.IsNullOrWhiteSpace(txtCertName.Text))
-            {
-                MessageBox.Show("Please enter a name for the certificate.", "Validation Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(txtSubjectName.Text))
-            {
-                MessageBox.Show("Please enter a subject name.", "Validation Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            // Generate the certificate
-            bool success = _securityManager.GenerateServerCertificate(
-                txtCertName.Text,
-                txtSubjectName.Text,
-                (int)numValidYears.Value);
-
-            if (success)
-            {
-                GeneratedCertName = txtCertName.Text;
-                DialogResult = DialogResult.OK;
-                Close();
-            }
-        }
-
-        private void btnCancel_Click(object sender, EventArgs e)
-        {
-            DialogResult = DialogResult.Cancel;
-            Close();
-        }
+        private System.Windows.Forms.Label lblName;
+        private System.Windows.Forms.TextBox txtName;
+        private System.Windows.Forms.Label lblListenPort;
+        private System.Windows.Forms.NumericUpDown numListenPort;
+        private System.Windows.Forms.Label lblAllowedClients;
+        private System.Windows.Forms.TextBox txtAllowedClients;
+        private System.Windows.Forms.Label lblAllowedClientsHelp;
+        private System.Windows.Forms.CheckBox chkUseEncryption;
+        private System.Windows.Forms.Label lblSecurityLevel;
+        private System.Windows.Forms.ComboBox cmbSecurityLevel;
+        private System.Windows.Forms.GroupBox grpAuthentication;
+        private System.Windows.Forms.CheckBox chkPasswordAuth;
+        private System.Windows.Forms.CheckBox chkPublicKeyAuth;
+        private System.Windows.Forms.CheckBox chkCertificateAuth;
+        private System.Windows.Forms.CheckBox chkKeyboardInteractiveAuth;
+        private System.Windows.Forms.CheckBox chkYubikeyAuth;
+        private System.Windows.Forms.CheckBox chkTwoFactorAuth;
+        private System.Windows.Forms.Label lblMaxAuthTries;
+        private System.Windows.Forms.NumericUpDown numMaxAuthTries;
+        private System.Windows.Forms.Label lblLoginGraceTime;
+        private System.Windows.Forms.NumericUpDown numLoginGraceTime;
+        private System.Windows.Forms.CheckBox chkPermitRootLogin;
+        private System.Windows.Forms.GroupBox grpYubiKey;
+        private System.Windows.Forms.CheckBox chkEnableYubiKey;
+        private System.Windows.Forms.Label lblYubiKeyServer;
+        private System.Windows.Forms.TextBox txtYubiKeyServer;
+        private System.Windows.Forms.Label lblYubiKeyAPIKey;
+        private System.Windows.Forms.TextBox txtYubiKeyAPIKey;
+        private System.Windows.Forms.Label lblYubiKeyClientID;
+        private System.Windows.Forms.TextBox txtYubiKeyClientID;
+        private System.Windows.Forms.Button btnConfigureYubiKey;
+        private System.Windows.Forms.GroupBox grpServerCrypto;
+        private System.Windows.Forms.Label lblServerKey;
+        private System.Windows.Forms.ComboBox cmbServerKey;
+        private System.Windows.Forms.Button btnGenerateServerKey;
+        private System.Windows.Forms.Label lblServerCert;
+        private System.Windows.Forms.ComboBox cmbServerCert;
+        private System.Windows.Forms.Button btnGenerateServerCert;
+        private System.Windows.Forms.GroupBox grpLogging;
+        private System.Windows.Forms.Label lblLogLevel;
+        private System.Windows.Forms.ComboBox cmbLogLevel;
+        private System.Windows.Forms.CheckBox chkEnableAuditLogging;
+        private System.Windows.Forms.Label lblLogFilePath;
+        private System.Windows.Forms.TextBox txtLogFilePath;
+        private System.Windows.Forms.Button btnBrowseLogFile;
+        private System.Windows.Forms.Button btnOK;
+        private System.Windows.Forms.Button btnCancel;
     }
 }
