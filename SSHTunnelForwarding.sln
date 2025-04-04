@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.13.35818.85 d17.13
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SSHTunnelClient", "SSHTunnelClient\SSHTunnelClient.csproj", "{A2D996C1-ECF7-4844-8FF8-CF0448C4A1DC}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SSHTunnelServer", "SSHTunnelServer\SSHTunnelServer.csproj", "{2CF49AA0-8F56-433D-881B-C04E9A4745DC}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A2D996C1-ECF7-4844-8FF8-CF0448C4A1DC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A2D996C1-ECF7-4844-8FF8-CF0448C4A1DC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A2D996C1-ECF7-4844-8FF8-CF0448C4A1DC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A2D996C1-ECF7-4844-8FF8-CF0448C4A1DC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2CF49AA0-8F56-433D-881B-C04E9A4745DC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2CF49AA0-8F56-433D-881B-C04E9A4745DC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2CF49AA0-8F56-433D-881B-C04E9A4745DC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2CF49AA0-8F56-433D-881B-C04E9A4745DC}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {A7C9CBDD-C1BF-4C7B-9816-DEE569E66D12}
+	EndGlobalSection
+EndGlobal
