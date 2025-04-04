@@ -47,6 +47,9 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationIcon>win95-ssh-shield %283%29.ico</ApplicationIcon>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="Axe.Windows.Win32, Version=2.4.1.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
     <Reference Include="Microsoft.Win32.Registry, Version=5.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
@@ -64,19 +67,30 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="ConfigurationForm.cs">
+    <Compile Include="Forms\ConfigurationForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="EncryptionManager.cs" />
-    <Compile Include="MainForm.cs">
+    <Compile Include="Forms\KeyGenerationForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="PortForwardingConfig.cs" />
+    <Compile Include="Forms\PasswordPromptForm.cs" />
+    <Compile Include="Forms\YubiKeyConfigForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Managers\AuthenticationManager.cs" />
+    <Compile Include="Managers\EncryptionManager.cs" />
+    <Compile Include="Forms\MainForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Managers\YubiKeyManager.cs" />
+    <Compile Include="Models\AuthMethod.cs" />
+    <Compile Include="Models\PortForwardingConfig.cs" />
+    <Compile Include="Models\YubiKeyInfo.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="SettingsManager.cs" />
-    <Compile Include="StartupManager.cs" />
-    <EmbeddedResource Include="MainForm.resx">
+    <Compile Include="Managers\SettingsManager.cs" />
+    <Compile Include="Managers\StartupManager.cs" />
+    <EmbeddedResource Include="Forms\MainForm.resx">
       <DependentUpon>MainForm.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Properties\Resources.resx">
@@ -113,5 +127,9 @@
       <Install>false</Install>
     </BootstrapperPackage>
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="win95-ssh-shield %283%29.ico" />
+  </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

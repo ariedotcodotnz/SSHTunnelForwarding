@@ -6,6 +6,8 @@ using System.Linq;
 using System.Windows.Forms;
 using System.Diagnostics;
 using System.IO;
+using SSHTunnelClient.Models;
+using System.Threading.Tasks;
 
 namespace SSHTunnelClient
 {
@@ -246,20 +248,250 @@ namespace SSHTunnelClient
 
                 if (config.UseEncryption)
                 {
-                    // In a real implementation, we would need to handle this better
-                    // Here we're just simulating encryption by using a different port
-                    // The server would need to decrypt this
                     remoteHost = _encryptionManager.EncryptText(remoteHost);
                     // For demonstration, we don't actually encrypt the port
                 }
 
-                // Prepare OpenSSH command
+                // Base SSH command
                 string sshCommand = $"ssh -L {config.LocalPort}:{remoteHost}:{remotePort} {config.Username}@{config.ServerHost} -p {config.ServerPort} -N";
 
-                // Add private key if specified
-                if (!string.IsNullOrEmpty(config.PrivateKeyPath) && File.Exists(config.PrivateKeyPath))
+                // Handle different authentication methods
+                switch (config.AuthenticationMethod)
                 {
-                    sshCommand += $" -i \"{config.PrivateKeyPath}\"";
+                    case AuthMethod.PrivateKey:
+                        if (!string.IsNullOrEmpty(config.PrivateKeyPath) && File.Exists(config.PrivateKeyPath))
+                        {
+                            sshCommand += $" -i \"{config.PrivateKeyPath}\"";
+                        }
+                        break;
+
+                    case AuthMethod.Certificate:
+                        // Get path to the certificate
+                        string appDataPath = Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                            "SSHTunnelClient");
+                        string certPath = Path.Combine(appDataPath, "cert_store", $"{config.CertificateName}.pfx");
+
+                        if (File.Exists(certPath))
+                        {
+                            sshCommand += $" -o \"PKCS11Provider={certPath}\"";
+                        }
+                        break;
+
+                    case AuthMethod.KeyboardInteractive:
+                        sshCommand += " -o \"PreferredAuthentications=keyboard-interactive\"";
+                        break;
+
+                    // Password authentication is the default with OpenSSH
+                    case AuthMethod.YubiKey:
+                        LogMessage($"Using YubiKey authentication for {config.Name}");
+
+                        // Create YubiKey manager
+                        YubiKeyManager yubiKeyManager = new YubiKeyManager();
+
+                        // Check if YubiKey is present
+                        if (!yubiKeyManager.IsYubiKeyPresent())
+                        {
+                            MessageBox.Show("YubiKey not detected. Please insert your YubiKey and try again.",
+                                "YubiKey Required", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            return;
+                        }
+
+                        // Use the appropriate YubiKey mode
+                        switch (config.YubiKeyMode)
+                        {
+                            case YubiKeyMode.PIV:
+                                // PIV mode uses the PKCS#11 provider
+                                if (!string.IsNullOrEmpty(config.YubiKeyProvider))
+                                {
+                                    sshCommand += $" -o \"PKCS11Provider={config.YubiKeyProvider}\"";
+                                }
+
+                                // Add PIN handling if needed
+                                if (!string.IsNullOrEmpty(config.YubiKeyPIN))
+                                {
+                                    // Create a temporary PIN file (in a real app, you'd use ssh-askpass or a more secure method)
+                                    string tempPinFile = Path.Combine(Path.GetTempPath(), $"yubikey_pin_{Guid.NewGuid()}.txt");
+                                    File.WriteAllText(tempPinFile, config.YubiKeyPIN);
+
+                                    // Use PIN file
+                                    sshCommand = sshCommand.Replace("-N", $"-N < \"{tempPinFile}\"");
+
+                                    // Schedule cleanup of the PIN file
+                                    Timer pinCleanupTimer = new Timer();
+                                    pinCleanupTimer.Interval = 5000; // 5 seconds
+                                    pinCleanupTimer.Tick += (s, e) =>
+                                    {
+                                        try
+                                        {
+                                            if (File.Exists(tempPinFile))
+                                                File.Delete(tempPinFile);
+
+                                            ((Timer)s).Stop();
+                                            ((Timer)s).Dispose();
+                                        }
+                                        catch { /* Ignore cleanup errors */ }
+                                    };
+                                    pinCleanupTimer.Start();
+                                }
+                                break;
+
+                            case YubiKeyMode.OATH:
+                                // For OATH mode, we need to get the current TOTP code
+                                Task.Run(async () =>
+                                {
+                                    try
+                                    {
+                                        LogMessage("Waiting for YubiKey OATH TOTP code...");
+
+                                        // Get YubiKey OATH code (this will prompt the user to touch the YubiKey if needed)
+                                        string response = await yubiKeyManager.GetChallengeResponseAsync("");
+
+                                        if (!string.IsNullOrEmpty(response))
+                                        {
+                                            // Send the OATH code to the SSH process stdin when prompted
+                                            sshProcess.OutputDataReceived += (sender, e) =>
+                                            {
+                                                if (e.Data != null && e.Data.Contains("Verification code"))
+                                                {
+                                                    sshProcess.StandardInput.WriteLine(response);
+                                                    sshProcess.StandardInput.Flush();
+                                                    LogMessage("Sent YubiKey OATH TOTP code");
+                                                }
+                                            };
+                                        }
+                                        else
+                                        {
+                                            LogMessage("Failed to get YubiKey OATH TOTP code");
+                                        }
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        LogMessage($"YubiKey OATH error: {ex.Message}");
+                                    }
+                                });
+                                break;
+
+                            case YubiKeyMode.ChallengeResponse:
+                                // For Challenge-Response mode, we need to set up keyboard-interactive authentication
+                                sshCommand += " -o \"PreferredAuthentications=keyboard-interactive\"";
+
+                                // Handle challenge-response in the output handler
+                                sshProcess.OutputDataReceived += async (sender, e) =>
+                                {
+                                    if (e.Data != null && e.Data.Contains("challenge"))
+                                    {
+                                        try
+                                        {
+                                            // Extract challenge (this is simplified - real implementations would parse properly)
+                                            string challenge = "challenge";
+
+                                            // Get response from YubiKey
+                                            string response = await yubiKeyManager.GetChallengeResponseAsync(challenge);
+
+                                            if (!string.IsNullOrEmpty(response))
+                                            {
+                                                sshProcess.StandardInput.WriteLine(response);
+                                                sshProcess.StandardInput.Flush();
+                                                LogMessage("Sent YubiKey challenge-response");
+                                            }
+                                            else
+                                            {
+                                                LogMessage("Failed to get YubiKey challenge-response");
+                                            }
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            LogMessage($"YubiKey challenge-response error: {ex.Message}");
+                                        }
+                                    }
+                                };
+                                break;
+                        }
+                        break;
+
+                    case AuthMethod.YubiKeyOTP:
+                        LogMessage($"Using YubiKey OTP authentication for {config.Name}");
+
+                        // For YubiKey OTP, we need to handle keyboard-interactive authentication
+                        sshCommand += " -o \"PreferredAuthentications=keyboard-interactive\"";
+
+                        // Set up a handler to prompt for YubiKey touch when needed
+                        sshProcess.OutputDataReceived += (sender, e) =>
+                        {
+                            if (e.Data != null && (e.Data.Contains("password") || e.Data.Contains("code")))
+                            {
+                                // Show message to prompt user to touch YubiKey
+                                MessageBox.Show("Please touch your YubiKey button to generate an OTP code.",
+                                    "YubiKey Touch Required", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                                // The YubiKey will send the OTP as keystrokes automatically
+                                // No need to manually enter anything in this case
+                            }
+                        };
+                        break;
+                }
+
+                // Add connection timeout
+                if (config.ConnectionTimeout > 0)
+                {
+                    sshCommand += $" -o \"ConnectTimeout={config.ConnectionTimeout}\"";
+                }
+
+                // Add keep-alive interval
+                if (config.KeepAliveInterval > 0)
+                {
+                    sshCommand += $" -o \"ServerAliveInterval={config.KeepAliveInterval}\"";
+                }
+
+                // Add compression if enabled
+                if (config.EnableCompression)
+                {
+                    sshCommand += " -C";
+                }
+
+                // Add any custom SSH options
+                if (!string.IsNullOrEmpty(config.SSHOptions))
+                {
+                    sshCommand += $" {config.SSHOptions}";
+                }
+
+                // Handle TOTP if enabled
+                if (config.UseTOTP && !string.IsNullOrEmpty(config.TOTPSecretKey))
+                {
+                    // Generate TOTP code
+                    AuthenticationManager authManager = new AuthenticationManager();
+                    string totpCode = authManager.GenerateTOTPCode(config.TOTPSecretKey);
+
+                    if (!string.IsNullOrEmpty(totpCode))
+                    {
+                        // For handling TOTP, we need to use plink with SSH_ASKPASS or similar
+                        // This is a simplified approach - in production, you'd need a more robust solution
+
+                        // Create a temporary file with the TOTP code
+                        string tempTotpFile = Path.Combine(Path.GetTempPath(), $"totp_{Guid.NewGuid()}.txt");
+                        File.WriteAllText(tempTotpFile, totpCode);
+
+                        // Modify command to use the TOTP file
+                        sshCommand = sshCommand.Replace("-N", $"-N < \"{tempTotpFile}\"");
+
+                        // Schedule cleanup of the temporary file
+                        Timer cleanupTimer = new Timer();
+                        cleanupTimer.Interval = 30000; // 30 seconds
+                        cleanupTimer.Tick += (sender, e) =>
+                        {
+                            try
+                            {
+                                if (File.Exists(tempTotpFile))
+                                    File.Delete(tempTotpFile);
+
+                                ((Timer)sender).Stop();
+                                ((Timer)sender).Dispose();
+                            }
+                            catch { /* Ignore cleanup errors */ }
+                        };
+                        cleanupTimer.Start();
+                    }
                 }
 
                 // Start the SSH process
@@ -270,11 +502,29 @@ namespace SSHTunnelClient
                         FileName = "cmd.exe",
                         Arguments = $"/c {sshCommand}",
                         UseShellExecute = false,
-                        CreateNoWindow = true
+                        CreateNoWindow = true,
+                        RedirectStandardInput = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
                     }
                 };
 
+                // For password authentication, we need to handle stdin
+                if (config.AuthenticationMethod == AuthMethod.Password && !string.IsNullOrEmpty(config.Password))
+                {
+                    sshProcess.OutputDataReceived += (sender, e) =>
+                    {
+                        if (e.Data != null && e.Data.Contains("password"))
+                        {
+                            sshProcess.StandardInput.WriteLine(config.Password);
+                            sshProcess.StandardInput.Flush();
+                        }
+                    };
+                }
+
                 sshProcess.Start();
+                sshProcess.BeginOutputReadLine();
+                sshProcess.BeginErrorReadLine();
 
                 // Store the process and update the configuration
                 _activeTunnels[config.LocalPort] = sshProcess;
