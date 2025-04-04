@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Windows.Forms;
 using System.IO;
+using SSHTunnelClient;
 using SSHTunnelClient.Models;
 
 namespace SSHTunnelClient

@@ -47,4 +47,3 @@ namespace SSHTunnelClient
         public string SSHOptions { get; set; } = ""; // Additional SSH command-line options
     }
 }
-}

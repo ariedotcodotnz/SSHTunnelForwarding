@@ -5,6 +5,8 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Windows.Forms;
+using SSHTunnelClient.Models;
+using SSHTunnelClient;
 
 namespace SSHTunnelClient
 {
@@ -42,10 +44,13 @@ namespace SSHTunnelClient
                 string keyStorePath = Path.Combine(appDataPath, KEY_STORE_PATH);
 
                 // Generate RSA key pair
-                using (RSA rsa = RSA.Create(keySize))
+                using (RSA rsa = RSA.Create())
                 {
-                    // Export private key in PEM format
-                    byte[] privateKeyBytes = rsa.ExportRSAPrivateKey();
+                    rsa.KeySize = keySize;
+
+                    // Export private key using parameters instead
+                    RSAParameters parameters = rsa.ExportParameters(true);
+                    byte[] privateKeyBytes = ExportPrivateKeyToDER(parameters);
                     string privateKeyPath = Path.Combine(keyStorePath, $"{keyName}.pem");
 
                     // If passphrase is provided, encrypt the private key
@@ -56,12 +61,9 @@ namespace SSHTunnelClient
 
                     File.WriteAllBytes(privateKeyPath, privateKeyBytes);
 
-                    // Export public key in OpenSSH format
-                    byte[] publicKeyBytes = rsa.ExportRSAPublicKey();
+                    // Export public key
                     string publicKeyPath = Path.Combine(keyStorePath, $"{keyName}.pub");
-
-                    // Format as OpenSSH public key format
-                    string publicKeyOpenSSH = ConvertToOpenSSHPublicKey(publicKeyBytes, keyName);
+                    string publicKeyOpenSSH = ConvertToOpenSSHPublicKey(parameters, keyName);
                     File.WriteAllText(publicKeyPath, publicKeyOpenSSH);
 
                     return true;
@@ -75,8 +77,51 @@ namespace SSHTunnelClient
             }
         }
 
+        // Add these helper methods:
+        private byte[] ExportPrivateKeyToDER(RSAParameters parameters)
+        {
+            // Simple implementation - in production you would use proper ASN.1 DER encoding
+            using (MemoryStream ms = new MemoryStream())
+            {
+                BinaryWriter bw = new BinaryWriter(ms);
+
+                // Write private key components
+                WriteParameter(bw, parameters.Modulus);
+                WriteParameter(bw, parameters.Exponent);
+                WriteParameter(bw, parameters.D);
+                WriteParameter(bw, parameters.P);
+                WriteParameter(bw, parameters.Q);
+                WriteParameter(bw, parameters.DP);
+                WriteParameter(bw, parameters.DQ);
+                WriteParameter(bw, parameters.InverseQ);
+
+                return ms.ToArray();
+            }
+        }
+
+        private void WriteParameter(BinaryWriter bw, byte[] value)
+        {
+            if (value != null)
+            {
+                bw.Write(value.Length);
+                bw.Write(value);
+            }
+            else
+            {
+                bw.Write(0);
+            }
+        }
+        private byte[] ReverseBytes(byte[] bytes)
+        {
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(bytes);
+            }
+            return bytes;
+        }
+
         // Convert RSA public key bytes to OpenSSH format
-        private string ConvertToOpenSSHPublicKey(byte[] publicKeyBytes, string comment)
+        private string ConvertToOpenSSHPublicKey(RSAParameters parameters, string comment)
         {
             StringBuilder sb = new StringBuilder();
             sb.Append("ssh-rsa ");
@@ -92,15 +137,12 @@ namespace SSHTunnelClient
                     bw.Write(keyTypeBytes);
 
                     // Public exponent length and value
-                    // This is a simplified version - a real implementation would extract the actual components
-                    byte[] exponent = new byte[] { 1, 0, 1 }; // Standard RSA exponent
-                    bw.Write(ReverseBytes(BitConverter.GetBytes(exponent.Length)));
-                    bw.Write(exponent);
+                    bw.Write(ReverseBytes(BitConverter.GetBytes(parameters.Exponent.Length)));
+                    bw.Write(parameters.Exponent);
 
                     // Modulus length and value
-                    // Simplified version - would need actual extraction in production code
-                    bw.Write(ReverseBytes(BitConverter.GetBytes(publicKeyBytes.Length)));
-                    bw.Write(publicKeyBytes);
+                    bw.Write(ReverseBytes(BitConverter.GetBytes(parameters.Modulus.Length)));
+                    bw.Write(parameters.Modulus);
                 }
 
                 sb.Append(Convert.ToBase64String(ms.ToArray()));
@@ -111,15 +153,6 @@ namespace SSHTunnelClient
             sb.Append(comment);
 
             return sb.ToString();
-        }
-
-        private byte[] ReverseBytes(byte[] bytes)
-        {
-            if (BitConverter.IsLittleEndian)
-            {
-                Array.Reverse(bytes);
-            }
-            return bytes;
         }
 
         // Encrypt private key with passphrase

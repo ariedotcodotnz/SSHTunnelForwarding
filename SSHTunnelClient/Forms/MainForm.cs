@@ -255,6 +255,21 @@ namespace SSHTunnelClient
                 // Base SSH command
                 string sshCommand = $"ssh -L {config.LocalPort}:{remoteHost}:{remotePort} {config.Username}@{config.ServerHost} -p {config.ServerPort} -N";
 
+                // Create the process FIRST
+                Process sshProcess = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "cmd.exe",
+                        Arguments = $"/c {sshCommand}",
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardInput = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    }
+                };
+
                 // Handle different authentication methods
                 switch (config.AuthenticationMethod)
                 {
@@ -493,21 +508,6 @@ namespace SSHTunnelClient
                         cleanupTimer.Start();
                     }
                 }
-
-                // Start the SSH process
-                Process sshProcess = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = "cmd.exe",
-                        Arguments = $"/c {sshCommand}",
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardInput = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    }
-                };
 
                 // For password authentication, we need to handle stdin
                 if (config.AuthenticationMethod == AuthMethod.Password && !string.IsNullOrEmpty(config.Password))
